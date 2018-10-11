@@ -1,0 +1,25 @@
+# Generators
+
+coal:
+  capacity: 30
+  cost: 10
+  ramp: 5
+  mingen: 12
+
+mid-merit-gas:
+  capacity: 20
+  cost: 30
+  ramp: 12
+  mingen: 2
+
+peaking-gas:
+  capacity: 30
+  cost: 80
+  ramp: 20
+  mingen: 3
+
+dsm:
+  capacity: 1000
+  cost: 14000
+  ramp: 1000
+  mingen: 0
