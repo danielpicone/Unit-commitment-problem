@@ -1,4 +1,4 @@
-# Generators
+# Full Generators
 
 coal:
   capacity: 30
@@ -27,3 +27,19 @@ dsm:
   ramp: 1000
   mingen: 0
   startup: 0
+
+bayswater:
+  capacity: 2640
+  cost: 15.22
+  emissions: 912.64
+  ramp: 400
+  mingen: 264
+  startup: 10
+
+eraring:
+  capacity: 2880
+  cost: 23.377
+  emissions: 910.14
+  ramp: 500
+  mingen: 288
+  startup: 10

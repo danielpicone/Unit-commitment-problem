@@ -2,36 +2,70 @@
 # Solving the unit commitment problem
 using CPLEX
 using JuMP
+using YAML
+using DataFrames
+using Gadfly
 # First solve D_i
 srand(100)
 
-T = 5
-n = 4
+T = 48
+demand = 40+10*rand(T)
 # demand = 40*rand(T)
-demand = 40*ones(T)
-capacity = [10,20,30,1000]
 # μ = 100*ones(T)
 μ = 60*(rand(T)-0.5)
-cost = [100, 80, 110, 14000]
-min_gen = [0.2, 0.4, 0.1, 0]
-ramp_rate = [0.3, 0.5, 0.2, 1.0]
+generators = YAML.load(open("generators.yml"))
 
 original = JuMP.Model(solver = CplexSolver(CPXPARAM_ScreenOutput = 1, CPXPARAM_Preprocessing_Dual=-1, CPXPARAM_MIP_Display = 4))
 
-@variable(original, 1>=x[gen=1:n, t=1:T]>=0)
-# @variable(original, y[gen=1:n, t=1:T], Bin)
-@variable(original, 1>=y[gen=1:n, t=1:T]>=0)
+@variable(original, 1>=x[keys(generators), t=1:T]>=0)
+@variable(original, y[keys(generators), t=1:T], Bin)
+@variable(original, startup[keys(generators), t=1:T], Bin)
+# @variable(original, 1>=y[keys(generators), t=1:T]>=0)
 
-@objective(original, Min, sum(cost[gen] * capacity[gen] * x[gen, t] for gen=1:n,t=1:T))
+@objective(original, Min, sum(d["cost"] * d["capacity"] * x[gen, t] +d["startup"]*startup[gen,t] for (gen,d) in generators,t=1:T))
 
 # Demand constraints
-@constraint(original, demand_constraint[t=1:T], sum(capacity[gen]*x[gen,t] for gen=1:n) == demand[t])
+@constraint(original, demand_constraint[t=1:T], sum(d["capacity"]*x[gen,t] for (gen,d) in generators) == demand[t])
 
-# Min  constraints
-@constraint(original, min_gen1[gen=1:n, t=1:T], x[gen, t] >= min_gen[gen]*y[gen, t])
-@constraint(original, min_gen2[gen=1:n, t=1:T], x[gen, t] <= y[gen, t])
-# Ramp rate constraints
-@constraint(original, ramp_down[gen=1:n, t=1:T-1], x[gen, t] - x[gen, t+1] <= ramp_rate[gen])
-@constraint(original, ramp_up[gen=1:n, t=1:T-1], x[gen, t] - x[gen, t+1] >= -ramp_rate[gen])
+# Min gen constraints
+@constraint(original, min_gen1[gen in keys(generators), t=1:T], generators[gen]["capacity"]*x[gen, t] >= generators[gen]["mingen"]*y[gen, t])
+@constraint(original, min_gen2[gen in keys(generators), t=1:T], x[gen, t] <= y[gen, t])
+# # Ramp rate constraints
+@constraint(original, ramp_down[gen in keys(generators), t=1:T-1], generators[gen]["capacity"]*(x[gen, t] - x[gen, t+1]) <= generators[gen]["ramp"])
+@constraint(original, ramp_up[gen in keys(generators), t=1:T-1], generators[gen]["capacity"]*(x[gen, t] - x[gen, t+1]) >= -generators[gen]["ramp"])
+# Start up constraint
+@constraint(original, start_up[gen in keys(generators), t=2:T], startup[gen,t]>=y[gen,t]-y[gen,t-1])
 
 solve(original)
+
+function create_variables_dict(generators)
+    generation_vars = Dict()
+    for gen in keys(generators)
+        generation_vars[gen] = Dict("generation" => getvalue(x[gen,1:T]),
+        "on" => getvalue(y[gen,1:T])
+        )
+    end
+    return generation_vars
+end
+
+generation_vars = create_variables_dict(generators)
+
+# Create the dataframe
+function create_generation_df(generators)
+    df = DataFrames.DataFrame(generator = String[], cost = Float64[], max_capacity = Float64[], interval = Float64[], generation = Float64[], demand = Float64[])
+    for (gen, d) in generators
+        for t=1:T
+            push!(df, [gen d["cost"] d["capacity"] t d["capacity"]*generation_vars[gen]["generation"][t] demand[t]])
+        end
+    end
+    return df
+end
+
+df = create_generation_df(generators)
+
+df[:generation] = max.(df[:generation],0)
+
+demand_df = DataFrames.DataFrame(interval = collect(1:T+1)-0.5, demand = [demand;demand[end]])
+plot(df,
+   layer(demand_df, x=:interval,y=:demand,Geom.step, Theme(default_color="black")),
+   layer(sort!(df, rev=true),x=:interval,y=:generation,color=:generator,Geom.bar))
